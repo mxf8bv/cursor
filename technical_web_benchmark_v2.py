@@ -13,6 +13,7 @@ import re
 import socket
 import sys
 import time
+from zipfile import ZipFile, ZIP_DEFLATED
 from urllib.parse import urljoin, urlparse
 
 try:
@@ -457,6 +458,21 @@ def summary(outdir, rows):
     (outdir/'review.md').write_text('\n'.join(lines),encoding='utf-8')
 
 
+
+def package_results(outdir):
+    """Archive the result directory; overwrite ZIP atomically after each completed case."""
+    outdir = Path(outdir)
+    archive_path = outdir.parent / (outdir.name + '.zip')
+    temporary_path = archive_path.with_name(archive_path.name + '.tmp')
+    with ZipFile(temporary_path, 'w', compression=ZIP_DEFLATED, compresslevel=6) as zf:
+        for path in sorted(outdir.rglob('*')):
+            if path.is_file():
+                zf.write(path, arcname=str(Path(outdir.name) / path.relative_to(outdir)))
+    temporary_path.replace(archive_path)
+    print('Results ZIP:', archive_path.resolve(), flush=True)
+    return archive_path
+
+
 def check_web():
     try:
         test=search_web('HackRF One official specifications half duplex')
@@ -516,6 +532,7 @@ def main():
             p.error('No saved case JSON files under '+str(outdir/'cases'))
         summary(outdir,records)
         print('Report generated:',outdir/'review.md','from',len(records),'cases')
+        package_results(outdir)
         return
     task_keys=list(TASKS) if args.tasks=='all' else [x.strip() for x in args.tasks.split(',')]
     for key in task_keys:
@@ -552,6 +569,7 @@ def main():
                     try: completed.append(json.loads(f.read_text(encoding='utf-8')))
                     except (ValueError,OSError): pass
                 summary(outdir,completed)
+                package_results(outdir)
                 print(' ->',r['heuristic_score'],'/',r['heuristic_total'],
                       'checks;',r['sources_opened'],'pages;',r['tool_calls'],'tools;',
                       r['total_seconds'],'s;',r['gen_tokens_per_second'],'tok/s;',
@@ -568,7 +586,8 @@ def main():
         except (ValueError,OSError):pass
     summary(outdir,rows)
     print('\nSaved',outdir/'review.md','and',len(rows),'full JSON records')
-    print('Share the entire output directory as a zip for careful review.')
+    package_results(outdir)
+    print('Upload the ZIP file shown above for review.')
 
 if __name__=='__main__':
     main()
